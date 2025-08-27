@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
 use App\Models\Ticket;
+use App\Models\User;
 
 class TicketController extends Controller
 {
@@ -12,8 +13,21 @@ class TicketController extends Controller
      */
     public function index()
     {
-        // select * from tickets
-        return response()->json(Ticket::all());
+        $query = Ticket::with('user');
+
+        // Filtro por estado
+        if (request('status')) {
+            $query->where('status', request('status'));
+        }
+
+        // Búsqueda por título
+        if (request('search')) {
+            $query->where('title', 'like', '%' . request('search') . '%');
+        }
+
+        $tickets = $query->orderBy('created_at', 'desc')->paginate(10);
+
+        return view('tickets.index', compact('tickets'));
     }
 
     /**
@@ -21,7 +35,8 @@ class TicketController extends Controller
      */
     public function create()
     {
-        return view('tickets.create');
+        $users = User::all();
+        return view('tickets.create', compact('users'));
     }
 
     /**
@@ -29,23 +44,24 @@ class TicketController extends Controller
      */
     public function store(Request $request)
     {
-        $validated = $request->validate(
-            [
-                'user_id' => 'required|exists:users,id',
-                'title' => 'required|string|max:255',
-                'description' => 'required|string',
-                'status' => 'in:open,in_progress,closed',
-            ],
-            [
-                'user_id.required' => 'El usuario es obligatorio',
-                'user_id.exists' => 'El usuario ya existe',
-            ]
-        );
+        $validated = $request->validate([
+            'user_id' => 'required|exists:users,id',
+            'title' => 'required|string|max:255',
+            'description' => 'required|string',
+            'status' => 'in:open,in_progress,closed',
+        ], [
+            'user_id.required' => 'El usuario es obligatorio',
+            'user_id.exists' => 'El usuario seleccionado no existe',
+            'title.required' => 'El título es obligatorio',
+            'title.max' => 'El título no puede tener más de 255 caracteres',
+            'description.required' => 'La descripción es obligatoria',
+            'status.in' => 'El estado debe ser: abierto, en progreso o cerrado',
+        ]);
 
-        $ticket = new Ticket($validated);
-        $ticket->save();
+        $ticket = Ticket::create($validated);
 
-        return response()->json($ticket, 201)->with('message', 'Ticket created successfully');
+        return redirect()->route('tickets.index')
+            ->with('success', 'Ticket creado exitosamente');
     }
 
     /**
@@ -53,11 +69,8 @@ class TicketController extends Controller
      */
     public function show(string $id)
     {
-        $ticket = Ticket::find($id);
-        if (!$ticket) {
-            return response()->json(['message' => 'Ticket not found'], 404);
-        }
-        return response()->json($ticket);
+        $ticket = Ticket::with('user')->findOrFail($id);
+        return view('tickets.show', compact('ticket'));
     }
 
     /**
@@ -65,12 +78,9 @@ class TicketController extends Controller
      */
     public function edit(string $id)
     {
-        $ticket = Ticket::find($id);
-        if (!$ticket) {
-            return response()->json(['message' => 'Ticket not found'], 404);
-        }
-
-        return response()->json($ticket);
+        $ticket = Ticket::findOrFail($id);
+        $users = User::all();
+        return view('tickets.edit', compact('ticket', 'users'));
     }
 
     /**
@@ -78,7 +88,26 @@ class TicketController extends Controller
      */
     public function update(Request $request, string $id)
     {
-        //
+        $ticket = Ticket::findOrFail($id);
+
+        $validated = $request->validate([
+            'user_id' => 'required|exists:users,id',
+            'title' => 'required|string|max:255',
+            'description' => 'required|string',
+            'status' => 'in:open,in_progress,closed',
+        ], [
+            'user_id.required' => 'El usuario es obligatorio',
+            'user_id.exists' => 'El usuario seleccionado no existe',
+            'title.required' => 'El título es obligatorio',
+            'title.max' => 'El título no puede tener más de 255 caracteres',
+            'description.required' => 'La descripción es obligatoria',
+            'status.in' => 'El estado debe ser: abierto, en progreso o cerrado',
+        ]);
+
+        $ticket->update($validated);
+
+        return redirect()->route('tickets.index')
+            ->with('success', 'Ticket actualizado exitosamente');
     }
 
     /**
@@ -86,6 +115,10 @@ class TicketController extends Controller
      */
     public function destroy(string $id)
     {
-        //
+        $ticket = Ticket::findOrFail($id);
+        $ticket->delete();
+
+        return redirect()->route('tickets.index')
+            ->with('success', 'Ticket eliminado exitosamente');
     }
 }
