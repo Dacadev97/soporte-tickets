@@ -53,13 +53,25 @@ class TicketController extends Controller
      */
     public function show(string $id)
     {
-        //
+        $ticket = Ticket::find($id);
+        if (!$ticket) {
+            return response()->json(['message' => 'Ticket not found'], 404);
+        }
+        return response()->json($ticket);
     }
 
     /**
      * Show the form for editing the specified resource.
      */
-    public function edit(string $id) {}
+    public function edit(string $id)
+    {
+        $ticket = Ticket::find($id);
+        if (!$ticket) {
+            return response()->json(['message' => 'Ticket not found'], 404);
+        }
+
+        return response()->json($ticket);
+    }
 
     /**
      * Update the specified resource in storage.
