@@ -1,3 +1,19 @@
+{{-- 
+    Vista: Lista de Tickets (Index)
+    ===============================
+    
+    Esta vista muestra la lista principal de todos los tickets del sistema.
+    Incluye funcionalidades de:
+    - Filtrado por estado (abierto, en progreso, cerrado)
+    - Búsqueda por título de ticket
+    - Paginación automática
+    - Acciones CRUD para cada ticket
+    - Diseño responsive con Bootstrap
+    
+    Variables disponibles:
+    - $tickets: Colección paginada de tickets con relación de usuario
+--}}
+
 @extends('layouts.app')
 
 @section('title', 'Lista de Tickets')
@@ -5,6 +21,7 @@
 @section('content')
 <div class="row">
     <div class="col-12">
+        {{-- Encabezado de la página con título y botón de creación --}}
         <div class="d-flex justify-content-between align-items-center mb-4">
             <h1 class="h3 mb-0">
                 <i class="fas fa-ticket-alt me-2"></i>Lista de Tickets
@@ -14,10 +31,12 @@
             </a>
         </div>
 
-        <!-- Filtros -->
+        {{-- Panel de filtros y búsqueda --}}
         <div class="card mb-4">
             <div class="card-body">
+                {{-- Formulario de filtros que envía parámetros GET --}}
                 <form method="GET" action="{{ route('tickets.index') }}" class="row g-3">
+                    {{-- Filtro por estado del ticket --}}
                     <div class="col-md-4">
                         <label for="status" class="form-label">Estado</label>
                         <select name="status" id="status" class="form-select">
@@ -27,11 +46,13 @@
                             <option value="closed" {{ request('status') == 'closed' ? 'selected' : '' }}>Cerrado</option>
                         </select>
                     </div>
+                    {{-- Campo de búsqueda por título --}}
                     <div class="col-md-4">
                         <label for="search" class="form-label">Buscar</label>
                         <input type="text" name="search" id="search" class="form-control" 
                                placeholder="Buscar por título..." value="{{ request('search') }}">
                     </div>
+                    {{-- Botones de acción para filtros --}}
                     <div class="col-md-4 d-flex align-items-end">
                         <button type="submit" class="btn btn-outline-primary me-2">
                             <i class="fas fa-search me-1"></i>Filtrar
@@ -44,12 +65,14 @@
             </div>
         </div>
 
-        <!-- Tabla de tickets -->
+        {{-- Tabla principal de tickets --}}
         <div class="card">
             <div class="card-body">
                 @if($tickets->count() > 0)
+                    {{-- Tabla responsive para mostrar tickets --}}
                     <div class="table-responsive">
                         <table class="table table-hover">
+                            {{-- Encabezados de la tabla --}}
                             <thead class="table-light">
                                 <tr>
                                     <th>ID</th>
@@ -60,10 +83,14 @@
                                     <th>Acciones</th>
                                 </tr>
                             </thead>
+                            {{-- Cuerpo de la tabla con datos de tickets --}}
                             <tbody>
                                 @foreach($tickets as $ticket)
                                     <tr>
+                                        {{-- ID del ticket --}}
                                         <td>#{{ $ticket->id }}</td>
+                                        
+                                        {{-- Título y descripción del ticket --}}
                                         <td>
                                             <strong>{{ $ticket->title }}</strong>
                                             <br>
@@ -71,11 +98,15 @@
                                                 {{ Str::limit($ticket->description, 50) }}
                                             </small>
                                         </td>
+                                        
+                                        {{-- Usuario asignado al ticket --}}
                                         <td>
                                             <span class="badge bg-info">
                                                 <i class="fas fa-user me-1"></i>{{ $ticket->user->name ?? 'N/A' }}
                                             </span>
                                         </td>
+                                        
+                                        {{-- Estado del ticket con colores diferenciados --}}
                                         <td>
                                             @if($ticket->status == 'open')
                                                 <span class="badge bg-warning">
@@ -91,21 +122,28 @@
                                                 </span>
                                             @endif
                                         </td>
+                                        
+                                        {{-- Fecha de creación formateada --}}
                                         <td>
                                             <small class="text-muted">
                                                 {{ $ticket->created_at->format('d/m/Y H:i') }}
                                             </small>
                                         </td>
+                                        
+                                        {{-- Botones de acciones CRUD --}}
                                         <td>
                                             <div class="btn-group" role="group">
+                                                {{-- Botón Ver detalles --}}
                                                 <a href="{{ route('tickets.show', $ticket->id) }}" 
                                                    class="btn btn-sm btn-outline-info" title="Ver">
                                                     <i class="fas fa-eye"></i>
                                                 </a>
+                                                {{-- Botón Editar --}}
                                                 <a href="{{ route('tickets.edit', $ticket->id) }}" 
                                                    class="btn btn-sm btn-outline-warning" title="Editar">
                                                     <i class="fas fa-edit"></i>
                                                 </a>
+                                                {{-- Formulario de eliminación con confirmación --}}
                                                 <form action="{{ route('tickets.destroy', $ticket->id) }}" 
                                                       method="POST" class="d-inline" 
                                                       onsubmit="return confirm('¿Estás seguro de que quieres eliminar este ticket?')">
@@ -123,11 +161,12 @@
                         </table>
                     </div>
 
-                    <!-- Paginación -->
+                    {{-- Paginación automática de Laravel --}}
                     <div class="d-flex justify-content-center mt-4">
                         {{ $tickets->links() }}
                     </div>
                 @else
+                    {{-- Estado vacío cuando no hay tickets --}}
                     <div class="text-center py-5">
                         <i class="fas fa-ticket-alt fa-3x text-muted mb-3"></i>
                         <h4 class="text-muted">No hay tickets</h4>

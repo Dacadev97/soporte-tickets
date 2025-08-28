@@ -1,11 +1,32 @@
+{{-- 
+    Vista: Editar Ticket
+    ===================
+    
+    Esta vista muestra el formulario para editar un ticket existente.
+    Incluye:
+    - Formulario pre-poblado con los datos actuales del ticket
+    - Validación del lado del cliente y servidor
+    - Selección de usuario y estado
+    - Campos para título y descripción
+    - Información de fechas de creación y actualización
+    - Botones de navegación y acción
+    
+    Variables disponibles:
+    - $ticket: Modelo Ticket con datos actuales
+    - $users: Colección de usuarios disponibles para asignar
+--}}
+
 @extends('layouts.app')
 
 @section('title', 'Editar Ticket #' . $ticket->id)
 
 @section('content')
+{{-- Contenedor principal centrado --}}
 <div class="row justify-content-center">
     <div class="col-md-8">
+        {{-- Tarjeta del formulario de edición --}}
         <div class="card">
+            {{-- Encabezado con título y botón para ver ticket --}}
             <div class="card-header">
                 <div class="d-flex justify-content-between align-items-center">
                     <h4 class="mb-0">
@@ -16,12 +37,16 @@
                     </a>
                 </div>
             </div>
+            {{-- Cuerpo de la tarjeta con el formulario --}}
             <div class="card-body">
+                {{-- Formulario que envía datos al método update del controlador --}}
                 <form action="{{ route('tickets.update', $ticket->id) }}" method="POST">
                     @csrf
                     @method('PUT')
                     
+                    {{-- Primera fila: Usuario y Estado --}}
                     <div class="row">
+                        {{-- Campo de selección de usuario (pre-seleccionado) --}}
                         <div class="col-md-6 mb-3">
                             <label for="user_id" class="form-label">
                                 <i class="fas fa-user me-1"></i>Usuario <span class="text-danger">*</span>
@@ -40,6 +65,7 @@
                             @enderror
                         </div>
 
+                        {{-- Campo de selección de estado (pre-seleccionado) --}}
                         <div class="col-md-6 mb-3">
                             <label for="status" class="form-label">
                                 <i class="fas fa-info-circle me-1"></i>Estado
@@ -55,6 +81,7 @@
                         </div>
                     </div>
 
+                    {{-- Campo de título del ticket (pre-poblado) --}}
                     <div class="mb-3">
                         <label for="title" class="form-label">
                             <i class="fas fa-heading me-1"></i>Título <span class="text-danger">*</span>
@@ -69,6 +96,7 @@
                         @enderror
                     </div>
 
+                    {{-- Campo de descripción del ticket (pre-poblado) --}}
                     <div class="mb-4">
                         <label for="description" class="form-label">
                             <i class="fas fa-align-left me-1"></i>Descripción <span class="text-danger">*</span>
@@ -81,13 +109,14 @@
                         @error('description')
                             <div class="invalid-feedback">{{ $message }}</div>
                         @enderror
+                        {{-- Texto de ayuda para el usuario --}}
                         <div class="form-text">
                             <i class="fas fa-info-circle me-1"></i>
                             Proporcione una descripción detallada del problema o solicitud.
                         </div>
                     </div>
 
-                    <!-- Información del ticket -->
+                    {{-- Panel informativo con fechas del ticket --}}
                     <div class="alert alert-info">
                         <h6 class="alert-heading">
                             <i class="fas fa-info-circle me-2"></i>Información del Ticket
@@ -106,15 +135,19 @@
                         </div>
                     </div>
 
+                    {{-- Botones de acción del formulario --}}
                     <div class="d-flex justify-content-between">
                         <div>
+                            {{-- Botón para cancelar y volver a ver el ticket --}}
                             <a href="{{ route('tickets.show', $ticket->id) }}" class="btn btn-secondary">
                                 <i class="fas fa-arrow-left me-2"></i>Cancelar
                             </a>
+                            {{-- Botón para ir a la lista de tickets --}}
                             <a href="{{ route('tickets.index') }}" class="btn btn-outline-secondary">
                                 <i class="fas fa-list me-2"></i>Ver Todos
                             </a>
                         </div>
+                        {{-- Botón para enviar el formulario de actualización --}}
                         <button type="submit" class="btn btn-primary">
                             <i class="fas fa-save me-2"></i>Actualizar Ticket
                         </button>
