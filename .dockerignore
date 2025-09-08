@@ -1,0 +1,15 @@
+node_modules
+npm-debug.log
+.vscode
+.idea
+vendor
+storage/framework/cache
+storage/framework/sessions
+storage/framework/views
+storage/logs
+.env
+.env.*
+Dockerfile
+.git
+.gitignore
+composer.lock
