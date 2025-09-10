@@ -18,9 +18,10 @@ services:
       - DB_USERNAME=${DB_USERNAME:-tickets}
       - DB_PASSWORD=${DB_PASSWORD:-secret}
     volumes:
-      - ./:/var/www/html
+      - ./:/var/www/html:Z
     depends_on:
-      - db
+      db:
+        condition: service_healthy
 
   db:
     image: mysql:8.0
@@ -31,6 +32,12 @@ services:
       - MYSQL_DATABASE=${DB_DATABASE:-tickets}
       - MYSQL_USER=${DB_USERNAME:-tickets}
       - MYSQL_PASSWORD=${DB_PASSWORD:-secret}
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -p$$MYSQL_ROOT_PASSWORD || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
     ports:
       - "33060:3306"
     volumes:
