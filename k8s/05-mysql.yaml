@@ -1,0 +1,293 @@
+# ==============================================================================
+# MYSQL DEPLOYMENT - Despliegue de la base de datos MySQL
+# ==============================================================================
+#
+# Un Deployment es un recurso que gestiona el despliegue y escalado de aplicaciones.
+# Proporciona actualizaciones declarativas para Pods y ReplicaSets.
+#
+# ¿Por qué usar Deployment?
+# - Rolling updates: Actualiza la aplicación sin downtime
+# - Rollback: Puede volver a versiones anteriores automáticamente
+# - Self-healing: Reemplaza pods que fallan automáticamente
+# - Scaling: Puede escalar horizontal y verticalmente
+#
+# Para bases de datos, usamos replicas: 1 porque MySQL no es naturalmente
+# escalable horizontalmente (requiere configuración master-slave compleja)
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mysql-deployment                  # Nombre del deployment
+  namespace: soporte-tickets              # Namespace donde se despliega
+  labels:
+    app: soporte-tickets
+    component: database
+    tier: database
+  annotations:
+    description: "Deployment de MySQL para la aplicación de tickets"
+spec:
+  # Número de réplicas deseadas
+  # Para MySQL mantenemos 1 réplica para evitar problemas de concurrencia
+  replicas: 1
+  
+  # Estrategia de actualización
+  strategy:
+    type: Recreate                        # Recreate es mejor para DBs con volúmenes
+    # RollingUpdate no funciona bien con ReadWriteOnce volumes
+  
+  # Selector para identificar qué pods gestiona este deployment
+  selector:
+    matchLabels:
+      app: soporte-tickets
+      component: database
+      tier: database
+  
+  # Template define la especificación de los pods
+  template:
+    metadata:
+      labels:
+        app: soporte-tickets
+        component: database
+        tier: database
+        version: "8.0"
+      annotations:
+        description: "Pod de MySQL para soporte de tickets"
+    spec:
+      # Init container para configurar permisos
+      initContainers:
+      - name: init-mysql
+        image: busybox:1.35
+        command: ['sh', '-c']
+        args:
+        - |
+          chown -R 999:999 /var/lib/mysql
+          chmod -R 755 /var/lib/mysql
+        volumeMounts:
+        - name: mysql-storage
+          mountPath: /var/lib/mysql
+        securityContext:
+          runAsUser: 0
+      
+      # Contenedores dentro del pod
+      containers:
+      - name: mysql
+        image: mysql:8.0                  # Imagen oficial de MySQL
+        imagePullPolicy: IfNotPresent     # Solo descargar si no existe localmente
+        
+        # Puerto expuesto por el contenedor
+        ports:
+        - containerPort: 3306
+          name: mysql
+          protocol: TCP
+        
+        # Variables de entorno para configurar MySQL
+        env:
+        # Configuración básica de MySQL
+        - name: MYSQL_ROOT_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: laravel-secrets
+              key: MYSQL_ROOT_PASSWORD
+        
+        - name: MYSQL_DATABASE
+          value: "soporte_tickets"
+        
+        - name: MYSQL_USER
+          value: "laravel_user"
+        
+        - name: MYSQL_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: laravel-secrets
+              key: MYSQL_PASSWORD
+        
+        # Configuración adicional de MySQL para mejor rendimiento en K8s
+        - name: MYSQL_CHARSET
+          value: "utf8mb4"
+        
+        - name: MYSQL_COLLATION
+          value: "utf8mb4_unicode_ci"
+        
+        # Montaje del volumen persistente
+        volumeMounts:
+        - name: mysql-storage
+          mountPath: /var/lib/mysql        # Directorio donde MySQL guarda los datos
+        
+        - name: mysql-init
+          mountPath: /docker-entrypoint-initdb.d  # Scripts de inicialización
+          readOnly: true
+        
+        # Configuración de recursos
+        # Importante: definir límites para evitar que MySQL consuma todos los recursos
+        resources:
+          requests:                       # Recursos mínimos garantizados
+            memory: "256Mi"
+            cpu: "250m"
+          limits:                         # Límites máximos
+            memory: "512Mi"
+            cpu: "500m"
+        
+        # Configuración de health checks
+        # Readiness probe: cuándo está listo para recibir tráfico
+        readinessProbe:
+          exec:
+            command:
+            - mysqladmin
+            - ping
+            - -h
+            - localhost
+            - -u
+            - root
+            - -p${MYSQL_ROOT_PASSWORD}
+          initialDelaySeconds: 30         # Esperar 30s antes del primer check
+          periodSeconds: 10               # Ejecutar cada 10s
+          timeoutSeconds: 5               # Timeout de 5s por check
+          failureThreshold: 3             # Fallar después de 3 intentos
+        
+        # Liveness probe: cuándo reiniciar el contenedor
+        livenessProbe:
+          exec:
+            command:
+            - mysqladmin
+            - ping
+            - -h
+            - localhost
+            - -u
+            - root
+            - -p${MYSQL_ROOT_PASSWORD}
+          initialDelaySeconds: 60         # Esperar más tiempo para el primer check
+          periodSeconds: 30               # Ejecutar cada 30s
+          timeoutSeconds: 10              # Timeout más largo
+          failureThreshold: 3
+        
+        # Configuración de seguridad
+        securityContext:
+          runAsUser: 999                  # Usuario mysql
+          runAsGroup: 999                 # Grupo mysql
+          allowPrivilegeEscalation: false
+        
+        # Argumentos adicionales para MySQL
+        args:
+        - --default-authentication-plugin=mysql_native_password
+        - --character-set-server=utf8mb4
+        - --collation-server=utf8mb4_unicode_ci
+        - --sql-mode=
+        - --innodb-buffer-pool-size=128M  # Optimización para contenedores
+        - --max-connections=50            # Limitar conexiones para ahorrar memoria
+      
+      # Definición de volúmenes que el pod puede usar
+      volumes:
+      - name: mysql-storage
+        persistentVolumeClaim:
+          claimName: mysql-pvc            # Referencia al PVC creado anteriormente
+      
+      - name: mysql-init
+        secret:
+          secretName: mysql-init-config   # Scripts de inicialización desde secret
+          defaultMode: 0755               # Permisos de ejecución
+      
+      # Configuración de restart policy
+      restartPolicy: Always               # Reiniciar siempre en caso de fallo
+      
+      # Configuración de DNS
+      dnsPolicy: ClusterFirst            # Usar DNS del cluster
+      
+      # Configuración de seguridad a nivel de pod
+      securityContext:
+        fsGroup: 999                     # Grupo para acceso a volúmenes
+
+---
+# ==============================================================================
+# MYSQL SERVICE - Exposición de la base de datos dentro del cluster
+# ==============================================================================
+#
+# Un Service es una abstracción que define un conjunto lógico de Pods y una
+# política para acceder a ellos. Los Services permiten el desacoplamiento
+# entre frontend y backend.
+#
+# Tipos de Service:
+# - ClusterIP (default): Solo accesible dentro del cluster
+# - NodePort: Accesible desde fuera del cluster en un puerto específico
+# - LoadBalancer: Usa un balanceador de carga externo (cloud providers)
+# - ExternalName: Mapea a un nombre DNS externo
+#
+# Para MySQL usamos ClusterIP porque solo necesita ser accesible internamente
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: mysql-service                     # Nombre del service (usado por la app)
+  namespace: soporte-tickets              # Namespace donde se crea
+  labels:
+    app: soporte-tickets
+    component: database
+    tier: database
+  annotations:
+    description: "Service para acceso interno a MySQL"
+spec:
+  # Tipo de service - ClusterIP para acceso interno únicamente
+  type: ClusterIP
+  
+  # Selector para identificar qué pods forman parte de este service
+  # Debe coincidir con las labels de los pods del deployment
+  selector:
+    app: soporte-tickets
+    component: database
+    tier: database
+  
+  # Puertos expuestos por el service
+  ports:
+  - name: mysql                           # Nombre del puerto (opcional pero recomendado)
+    port: 3306                            # Puerto expuesto por el service
+    targetPort: mysql                     # Puerto en el contenedor (puede ser nombre o número)
+    protocol: TCP
+  
+  # Configuración de sesión
+  # None: sin afinidad de sesión (default)
+  # ClientIP: mismo cliente siempre va al mismo pod
+  sessionAffinity: None
+  
+  # Política de tráfico interno
+  # Cluster: tráfico de todo el cluster puede llegar al service
+  # Local: solo tráfico del mismo nodo
+  internalTrafficPolicy: Cluster
+
+---
+# ==============================================================================
+# HEADLESS SERVICE - Para conexiones directas a pods específicos
+# ==============================================================================
+#
+# Un Headless Service es un service sin ClusterIP (clusterIP: None).
+# En lugar de balancear la carga, devuelve las IPs de todos los pods
+# que coinciden con el selector.
+#
+# ¿Cuándo usar Headless Service?
+# - Cuando necesitas conexión directa a pods específicos
+# - Para StatefulSets donde cada pod tiene identidad única
+# - Para service discovery de todos los pods
+# - Para aplicaciones que manejan su propia lógica de balanceo
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: mysql-headless-service           # Service headless para descubrimiento
+  namespace: soporte-tickets
+  labels:
+    app: soporte-tickets
+    component: database
+    tier: database
+    service-type: headless
+  annotations:
+    description: "Headless service para descubrimiento directo de pods MySQL"
+spec:
+  type: ClusterIP
+  clusterIP: None                         # Esto hace que el service sea "headless"
+  selector:
+    app: soporte-tickets
+    component: database
+    tier: database
+  ports:
+  - name: mysql
+    port: 3306
+    targetPort: mysql
+    protocol: TCP

@@ -1,0 +1,153 @@
+# ==============================================================================
+# PERSISTENT VOLUME (PV) - Almacenamiento persistente en el cluster
+# ==============================================================================
+#
+# Un PersistentVolume es un recurso de almacenamiento en el cluster que ha sido
+# provisionado por un administrador o dinámicamente por una StorageClass.
+# Es un recurso en el cluster, independiente del ciclo de vida de los pods.
+#
+# ¿Por qué necesitamos almacenamiento persistente?
+# - Los contenedores son efímeros: cuando se reinician, pierden todos los datos
+# - Las bases de datos necesitan persistir datos entre reinicios
+# - Separar el almacenamiento del pod permite flexibilidad y durabilidad
+#
+# Tipos de acceso:
+# - ReadWriteOnce (RWO): Un solo nodo puede montar el volumen en lectura-escritura
+# - ReadOnlyMany (ROX): Múltiples nodos pueden montar en solo lectura
+# - ReadWriteMany (RWX): Múltiples nodos pueden montar en lectura-escritura
+#
+# Para Minikube usamos hostPath que mapea a un directorio del nodo
+
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: mysql-pv                          # Nombre único del PV
+  labels:
+    app: soporte-tickets
+    component: database
+    tier: database
+    storage-type: mysql-data
+  annotations:
+    description: "Volumen persistente para datos de MySQL"
+spec:
+  capacity:
+    storage: 2Gi                          # Capacidad del volumen
+  
+  # Modos de acceso disponibles para este volumen
+  accessModes:
+    - ReadWriteOnce                       # Solo un pod puede escribir a la vez
+  
+  # Política de reclamación: qué pasa cuando se libera el PVC
+  # - Retain: mantener datos (manual cleanup)
+  # - Recycle: borrar datos y reutilizar (deprecated)
+  # - Delete: eliminar el volumen automáticamente
+  persistentVolumeReclaimPolicy: Retain
+  
+  # Clase de almacenamiento (opcional)
+  # Si no se especifica, usa la StorageClass por defecto
+  storageClassName: manual
+  
+  # Configuración específica para Minikube usando hostPath
+  # En producción se usarían otros tipos como EBS, GCE Persistent Disk, etc.
+  hostPath:
+    path: "/mnt/data/mysql"               # Directorio en el nodo de Minikube
+    type: DirectoryOrCreate               # Crear el directorio si no existe
+
+---
+# ==============================================================================
+# PERSISTENT VOLUME CLAIM (PVC) - Solicitud de almacenamiento por parte de un pod
+# ==============================================================================
+#
+# Un PersistentVolumeClaim es una solicitud de almacenamiento por parte de un usuario.
+# Es similar a un pod: los pods consumen recursos de nodos y los PVCs consumen PVs.
+#
+# El proceso de binding:
+# 1. Usuario crea un PVC especificando tamaño y modo de acceso
+# 2. Kubernetes busca un PV disponible que satisfaga los requisitos
+# 3. Si encuentra uno, hace el "bind" entre PVC y PV
+# 4. El pod puede usar el PVC para montar el volumen
+#
+# Ventajas del patrón PV/PVC:
+# - Separación de responsabilidades: admin crea PVs, usuarios crean PVCs
+# - Abstracción: los usuarios no necesitan conocer detalles del almacenamiento
+# - Portabilidad: el mismo PVC funciona con diferentes tipos de PV
+
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: mysql-pvc                         # Nombre del PVC
+  namespace: soporte-tickets              # Namespace donde se crea
+  labels:
+    app: soporte-tickets
+    component: database
+    tier: database
+  annotations:
+    description: "Claim para el almacenamiento de MySQL"
+spec:
+  # Modos de acceso requeridos (debe coincidir con algún PV disponible)
+  accessModes:
+    - ReadWriteOnce
+  
+  # Recursos solicitados
+  resources:
+    requests:
+      storage: 2Gi                        # Cantidad de almacenamiento solicitado
+  
+  # Clase de almacenamiento (debe coincidir con el PV)
+  storageClassName: manual
+  
+  # Selector opcional para hacer bind con un PV específico
+  # En este caso, no lo usamos para permitir bind automático
+  # selector:
+  #   matchLabels:
+  #     storage-type: mysql-data
+
+---
+# ==============================================================================
+# PERSISTENT VOLUME para archivos de Laravel (storage, cache, logs)
+# ==============================================================================
+# Laravel necesita escribir archivos de caché, logs, sesiones, etc.
+# Aunque estos datos son menos críticos que la DB, es bueno persistirlos
+# para mejorar el rendimiento y debugging
+
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: laravel-storage-pv
+  labels:
+    app: soporte-tickets
+    component: application
+    tier: backend
+    storage-type: laravel-storage
+  annotations:
+    description: "Volumen para archivos de Laravel (storage, cache, logs)"
+spec:
+  capacity:
+    storage: 1Gi                          # Menos espacio que la DB
+  accessModes:
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: manual
+  hostPath:
+    path: "/mnt/data/laravel-storage"
+    type: DirectoryOrCreate
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: laravel-storage-pvc
+  namespace: soporte-tickets
+  labels:
+    app: soporte-tickets
+    component: application
+    tier: backend
+  annotations:
+    description: "Claim para archivos de Laravel"
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+  storageClassName: manual

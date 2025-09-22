@@ -1,0 +1,28 @@
+# ==============================================================================
+# NAMESPACE - Aislamiento lógico de recursos en Kubernetes
+# ==============================================================================
+# 
+# Un namespace es un mecanismo para dividir recursos de un cluster entre múltiples
+# usuarios. Proporcionan un scope para los nombres de recursos y permiten
+# implementar políticas de seguridad y quotas de recursos.
+#
+# ¿Por qué usar namespace?
+# - Organización: Separa diferentes aplicaciones o entornos
+# - Seguridad: Aísla recursos entre equipos o proyectos
+# - Administración: Facilita la gestión de recursos y permisos
+#
+# En este caso, creamos un namespace específico para nuestra aplicación
+# de tickets de soporte, separándola del namespace 'default'
+
+apiVersion: v1                    # Versión de la API de Kubernetes a usar
+kind: Namespace                   # Tipo de recurso que queremos crear
+metadata:
+  name: soporte-tickets          # Nombre único del namespace
+  labels:                        # Etiquetas para organizar y seleccionar recursos
+    app: soporte-tickets         # Etiqueta que identifica la aplicación
+    environment: development     # Etiqueta que indica el entorno
+    project: laravel-k8s         # Etiqueta del proyecto para agrupación
+  annotations:                   # Metadatos adicionales no identificadores
+    description: "Namespace para la aplicación de tickets de soporte Laravel"
+    created-by: "kubernetes-class"
+    contact: "admin@soporte-tickets.com"

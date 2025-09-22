@@ -1,0 +1,230 @@
+# ==============================================================================
+# INGRESS - Exposición de servicios HTTP/HTTPS al exterior del cluster
+# ==============================================================================
+#
+# Un Ingress es un recurso que gestiona el acceso externo a servicios dentro
+# del cluster, típicamente HTTP/HTTPS. Proporciona balanceo de carga,
+# terminación SSL/TLS y hosting virtual basado en nombres.
+#
+# ¿Qué hace un Ingress?
+# - Expone rutas HTTP/HTTPS desde fuera del cluster a servicios internos
+# - Puede proporcionar terminación SSL/TLS
+# - Puede hacer routing basado en hostnames o paths
+# - Balanceo de carga entre pods del servicio
+#
+# Para que funcione un Ingress, necesitas un Ingress Controller:
+# - En Minikube: minikube addons enable ingress (usa nginx)
+# - En producción: NGINX, Traefik, AWS ALB, GCE, etc.
+#
+# Ventajas sobre NodePort o LoadBalancer:
+# - Un solo punto de entrada para múltiples servicios
+# - Routing inteligente basado en reglas
+# - Gestión centralizada de SSL/TLS
+# - Menor costo (no necesita un LoadBalancer por servicio)
+
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: soporte-tickets-ingress         # Nombre del Ingress
+  namespace: soporte-tickets            # Namespace donde se crea
+  labels:
+    app: soporte-tickets
+    component: frontend
+    tier: proxy
+  annotations:
+    description: "Ingress para exponer la aplicación de tickets"
+    
+    # Anotaciones específicas del Ingress Controller (NGINX en Minikube)
+    nginx.ingress.kubernetes.io/rewrite-target: /
+    
+    # Configuración de SSL/TLS
+    nginx.ingress.kubernetes.io/ssl-redirect: "false"    # Desactivar redirect HTTPS para desarrollo
+    
+    # Configuración de proxy
+    nginx.ingress.kubernetes.io/proxy-body-size: "10m"   # Límite de tamaño de archivos subidos
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "60" # Timeout de lectura
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "60" # Timeout de envío
+    
+    # Headers adicionales
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      more_set_headers "X-Frame-Options: SAMEORIGIN";
+      more_set_headers "X-Content-Type-Options: nosniff";
+      more_set_headers "X-XSS-Protection: 1; mode=block";
+    
+    # Configuración de rate limiting (opcional)
+    nginx.ingress.kubernetes.io/rate-limit: "100"        # 100 requests por segundo
+    nginx.ingress.kubernetes.io/rate-limit-window: "1m"  # Ventana de 1 minuto
+spec:
+  # Clase del Ingress Controller a usar
+  # En Minikube con addon habilitado, usa 'nginx'
+  ingressClassName: nginx
+  
+  # Reglas de routing
+  rules:
+  - host: soporte-tickets.local          # Hostname para acceder a la aplicación
+    http:
+      paths:
+      - path: /                          # Path raíz
+        pathType: Prefix                 # Tipo de matching del path
+        backend:
+          service:
+            name: laravel-service        # Service al que dirigir el tráfico
+            port:
+              number: 80                 # Puerto del service
+  
+  # Configuración TLS/SSL (opcional para desarrollo)
+  # Descomenta las siguientes líneas si tienes certificados SSL
+  # tls:
+  # - hosts:
+  #   - soporte-tickets.local
+  #   secretName: soporte-tickets-tls    # Secret con los certificados
+
+---
+# ==============================================================================
+# INGRESS CON MULTIPLES HOSTS - Ejemplo avanzado
+# ==============================================================================
+# Este ejemplo muestra cómo configurar múltiples hosts y paths
+# Útil para entornos con múltiples aplicaciones o APIs
+
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: soporte-tickets-multi-ingress
+  namespace: soporte-tickets
+  labels:
+    app: soporte-tickets
+    component: frontend
+    tier: proxy
+    config-type: multi-host
+  annotations:
+    description: "Ingress multi-host para diferentes entornos"
+    nginx.ingress.kubernetes.io/rewrite-target: /$1
+    nginx.ingress.kubernetes.io/ssl-redirect: "false"
+    
+    # Configuración de CORS para APIs
+    nginx.ingress.kubernetes.io/enable-cors: "true"
+    nginx.ingress.kubernetes.io/cors-allow-methods: "GET, POST, PUT, DELETE, OPTIONS"
+    nginx.ingress.kubernetes.io/cors-allow-headers: "DNT,User-Agent,X-Requested-With,If-Modified-Since,Cache-Control,Content-Type,Range,Authorization"
+    nginx.ingress.kubernetes.io/cors-expose-headers: "Content-Length,Content-Range"
+spec:
+  ingressClassName: nginx
+  rules:
+  # Host principal de la aplicación
+  - host: app.soporte-tickets.local
+    http:
+      paths:
+      - path: /(.*)                      # Captura todo con regex
+        pathType: ImplementationSpecific
+        backend:
+          service:
+            name: laravel-service
+            port:
+              number: 80
+  
+  # API endpoint separado (si tuvieras una API separada)
+  - host: api.soporte-tickets.local
+    http:
+      paths:
+      - path: /(.*)
+        pathType: ImplementationSpecific
+        backend:
+          service:
+            name: laravel-service        # Mismo servicio, pero podrías tener uno diferente
+            port:
+              number: 80
+  
+  # Admin panel (si existiera)
+  - host: admin.soporte-tickets.local
+    http:
+      paths:
+      - path: /(.*)
+        pathType: ImplementationSpecific
+        backend:
+          service:
+            name: laravel-service
+            port:
+              number: 80
+
+---
+# ==============================================================================
+# INGRESS CON TLS/SSL - Configuración HTTPS
+# ==============================================================================
+# Este ejemplo muestra cómo configurar HTTPS con certificados
+# Para desarrollo puedes crear certificados self-signed
+
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: soporte-tickets-ssl-ingress
+  namespace: soporte-tickets
+  labels:
+    app: soporte-tickets
+    component: frontend
+    tier: proxy
+    ssl-enabled: "true"
+  annotations:
+    description: "Ingress con SSL/TLS para producción"
+    
+    # Configuración SSL
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"     # Forzar HTTPS
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+    
+    # Configuración de certificados
+    # nginx.ingress.kubernetes.io/cert-manager: "true"   # Si usas cert-manager
+    
+    # Headers de seguridad para HTTPS
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      more_set_headers "Strict-Transport-Security: max-age=31536000; includeSubDomains; preload";
+      more_set_headers "X-Frame-Options: SAMEORIGIN";
+      more_set_headers "X-Content-Type-Options: nosniff";
+      more_set_headers "X-XSS-Protection: 1; mode=block";
+      more_set_headers "Referrer-Policy: strict-origin-when-cross-origin";
+spec:
+  ingressClassName: nginx
+  tls:
+  - hosts:
+    - secure.soporte-tickets.local
+    secretName: soporte-tickets-tls-secret  # Secret que contiene los certificados
+  rules:
+  - host: secure.soporte-tickets.local
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: laravel-service
+            port:
+              number: 80
+
+---
+# ==============================================================================
+# SECRET PARA CERTIFICADOS TLS (Ejemplo)
+# ==============================================================================
+# Este secret contendría los certificados SSL/TLS
+# Para desarrollo, puedes generar certificados self-signed:
+#
+# openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+#   -keyout tls.key -out tls.crt \
+#   -subj "/CN=soporte-tickets.local/O=soporte-tickets.local"
+#
+# kubectl create secret tls soporte-tickets-tls-secret \
+#   --key tls.key --cert tls.crt -n soporte-tickets
+
+apiVersion: v1
+kind: Secret
+metadata:
+  name: soporte-tickets-tls-secret
+  namespace: soporte-tickets
+  labels:
+    app: soporte-tickets
+    component: certificates
+    tier: security
+  annotations:
+    description: "Certificados TLS para el Ingress"
+type: kubernetes.io/tls
+data:
+  # Los valores deben estar en base64
+  # Para desarrollo, estos son certificados de ejemplo (NO usar en producción)
+  tls.crt: LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCk1JSURCVENDQWUyZ0F3SUJBZ0lVTzBBK0JJN...  # Certificado en base64
+  tls.key: LS0tLS1CRUdJTiBQUklWQVRFIEtFWS0tLS0tCk1JSUV2UUlCQURBTkJna3Foa2lHOXcwQkFRRUY...  # Clave privada en base64

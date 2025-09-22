@@ -1,0 +1,70 @@
+# ==============================================================================
+# INGRESS SIMPLIFICADO - Exposición de servicios HTTP/HTTPS al exterior del cluster
+# ==============================================================================
+
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: soporte-tickets-ingress
+  namespace: soporte-tickets
+  labels:
+    app: soporte-tickets
+    component: frontend
+    tier: proxy
+  annotations:
+    description: "Ingress para exponer la aplicación de tickets"
+    nginx.ingress.kubernetes.io/rewrite-target: /
+    nginx.ingress.kubernetes.io/ssl-redirect: "false"
+    nginx.ingress.kubernetes.io/proxy-body-size: "10m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "60"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "60"
+spec:
+  # Reglas de routing
+  rules:
+  # Regla principal - acceso a la aplicación completa
+  - host: soporte-tickets.local
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: laravel-service
+            port:
+              number: 80
+  
+  # Regla para subdominio de aplicación
+  - host: app.soporte-tickets.local
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: laravel-service
+            port:
+              number: 80
+  
+  # Regla para subdominio de API
+  - host: api.soporte-tickets.local
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: laravel-service
+            port:
+              number: 80
+  
+  # Regla para subdominio de administración
+  - host: admin.soporte-tickets.local
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: laravel-service
+            port:
+              number: 80

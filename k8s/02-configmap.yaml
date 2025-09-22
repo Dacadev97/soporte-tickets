@@ -1,0 +1,110 @@
+# ==============================================================================
+# CONFIGMAP - Almacenamiento de datos de configuración no sensibles
+# ==============================================================================
+#
+# Un ConfigMap permite desacoplar la configuración del código de la aplicación.
+# Almacena datos de configuración en pares clave-valor que pueden ser consumidos
+# por pods como variables de entorno, argumentos de línea de comandos, o archivos
+# de configuración.
+#
+# ¿Por qué usar ConfigMap?
+# - Separación de configuración: La configuración vive fuera del contenedor
+# - Reutilización: Múltiples pods pueden usar la misma configuración
+# - Flexibilidad: Cambios de configuración sin reconstruir imágenes
+# - Versionado: Control de versiones de la configuración
+#
+# IMPORTANTE: ConfigMaps NO deben usarse para datos sensibles (usar Secrets)
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: laravel-config                    # Nombre del ConfigMap
+  namespace: soporte-tickets              # Namespace donde se crea
+  labels:
+    app: soporte-tickets
+    component: configuration
+    tier: backend
+  annotations:
+    description: "Configuración de la aplicación Laravel"
+data:
+  # Variables de entorno de Laravel
+  APP_NAME: "Sistema de Tickets de Soporte"
+  APP_ENV: "production"                   # Entorno de producción para K8s
+  APP_DEBUG: "false"                      # Debug deshabilitado en producción
+  APP_URL: "http://soporte-tickets.local" # URL base de la aplicación
+  
+  # Configuración de base de datos
+  DB_CONNECTION: "mysql"                  # Driver de base de datos
+  DB_HOST: "mysql-service"                # Nombre del service de MySQL
+  DB_PORT: "3306"                         # Puerto estándar de MySQL
+  DB_DATABASE: "soporte_tickets"          # Nombre de la base de datos
+  DB_USERNAME: "laravel_user"             # Usuario de la base de datos
+  
+  # Configuración de logging
+  LOG_CHANNEL: "stderr"                   # Log a stderr para contenedores
+  LOG_LEVEL: "info"                       # Nivel de logging en producción
+  
+  # Configuración de cache y sesión
+  CACHE_DRIVER: "file"                    # Driver de caché (file para simplificar)
+  SESSION_DRIVER: "file"                  # Driver de sesión
+  SESSION_LIFETIME: "120"                 # Tiempo de vida de sesión (minutos)
+  
+  # Configuración de broadcasting
+  BROADCAST_DRIVER: "log"                 # Driver de broadcasting
+  QUEUE_CONNECTION: "sync"                # Driver de colas (sync para simplificar)
+  
+  # Configuración específica para contenedores
+  # Esta configuración optimiza Laravel para ejecutarse en K8s
+  config.php: |
+    <?php
+    // Configuración adicional para contenedores
+    return [
+        'view' => [
+            'compiled' => env('VIEW_COMPILED_PATH', '/tmp/views'),
+        ],
+        'cache' => [
+            'stores' => [
+                'file' => [
+                    'driver' => 'file',
+                    'path' => env('CACHE_PATH', '/tmp/cache'),
+                ],
+            ],
+        ],
+    ];
+  
+  # Script de inicialización del contenedor
+  # Se puede montar como archivo y ejecutar durante el startup
+  init-container.sh: |
+    #!/bin/bash
+    set -e
+    echo "🚀 Iniciando configuración de Laravel en Kubernetes..."
+    
+    # Esperar a que MySQL esté disponible
+    echo "⏳ Esperando conexión a MySQL..."
+    until mysqladmin ping -h"$DB_HOST" -u"$DB_USERNAME" -p"$DB_PASSWORD" --silent; do
+      echo "MySQL no está listo, esperando..."
+      sleep 2
+    done
+    echo "✅ MySQL está disponible"
+    
+    # Crear directorios necesarios
+    mkdir -p /tmp/views /tmp/cache /var/www/html/storage/logs
+    chmod -R 775 /tmp/views /tmp/cache /var/www/html/storage
+    
+    # Generar clave de aplicación si no existe
+    if [ -z "$APP_KEY" ]; then
+      echo "🔑 Generando clave de aplicación..."
+      php artisan key:generate --force
+    fi
+    
+    # Ejecutar migraciones
+    echo "🗃️ Ejecutando migraciones de base de datos..."
+    php artisan migrate --force
+    
+    # Cache de configuración para mejor rendimiento
+    echo "⚡ Optimizando aplicación..."
+    php artisan config:cache
+    php artisan route:cache
+    php artisan view:cache
+    
+    echo "🎉 Inicialización completada"

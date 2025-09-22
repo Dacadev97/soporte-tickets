@@ -1,0 +1,363 @@
+# ==============================================================================
+# LARAVEL APPLICATION DEPLOYMENT - Despliegue de la aplicación web
+# ==============================================================================
+#
+# Este deployment gestiona la aplicación Laravel que hemos containerizado.
+# A diferencia de la base de datos, la aplicación web puede escalarse
+# horizontalmente sin problemas, por lo que podemos tener múltiples réplicas.
+#
+# Características importantes para aplicaciones web en Kubernetes:
+# - Rolling updates para despliegues sin downtime
+# - Health checks para asegurar que la aplicación responde correctamente
+# - Configuración mediante ConfigMaps y Secrets
+# - Escalabilidad horizontal
+# - Resource limits para uso eficiente de recursos
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: laravel-deployment               # Nombre del deployment
+  namespace: soporte-tickets             # Namespace donde se despliega
+  labels:
+    app: soporte-tickets
+    component: backend
+    tier: application
+  annotations:
+    description: "Deployment de la aplicación Laravel de tickets"
+spec:
+  # Número de réplicas - para aplicaciones web podemos tener varias
+  replicas: 2                           # 2 réplicas para alta disponibilidad
+  
+  # Estrategia de actualización
+  strategy:
+    type: RollingUpdate                 # Actualización sin downtime
+    rollingUpdate:
+      maxSurge: 1                       # 1 pod adicional durante actualización
+      maxUnavailable: 1                 # Máximo 1 pod no disponible durante actualización
+  
+  # Selector para identificar los pods gestionados
+  selector:
+    matchLabels:
+      app: soporte-tickets
+      component: backend
+      tier: application
+  
+  # Template de los pods
+  template:
+    metadata:
+      labels:
+        app: soporte-tickets
+        component: backend
+        tier: application
+        version: "1.0"
+      annotations:
+        description: "Pod de la aplicación Laravel"
+    spec:
+      # Init containers se ejecutan antes que los contenedores principales
+      # Útiles para tareas de inicialización como migraciones de DB
+      initContainers:
+      - name: laravel-init
+        image: dacadev/soporte-tickets:latest  # Usar la misma imagen
+        imagePullPolicy: IfNotPresent
+        
+        # Comando de inicialización
+        command: ["/bin/bash"]
+        args:
+        - -c
+        - |
+          set -e
+          echo "🔧 Inicializando aplicación Laravel..."
+          
+          # Esperar a que MySQL esté disponible
+          echo "⏳ Esperando a MySQL..."
+          until php -r "try { new PDO('mysql:host=mysql-service;port=3306', 'laravel_user', 'laravel_secure_2024!'); echo 'MySQL disponible\n'; exit(0); } catch(Exception \$e) { exit(1); }"; do
+            echo "MySQL no disponible, esperando..."
+            sleep 3
+          done
+          echo "✅ MySQL disponible"
+          
+          # Instalar dependencias de Composer
+          echo "📦 Instalando dependencias..."
+          composer install --no-interaction --prefer-dist --optimize-autoloader
+          
+          # Crear directorios necesarios
+          mkdir -p /var/www/html/storage/{app,framework,logs}
+          mkdir -p /var/www/html/storage/framework/{cache,sessions,testing,views}
+          mkdir -p /var/www/html/bootstrap/cache
+          
+          # Configurar permisos
+          chown -R www-data:www-data /var/www/html/storage
+          chown -R www-data:www-data /var/www/html/bootstrap/cache
+          chmod -R 775 /var/www/html/storage
+          chmod -R 775 /var/www/html/bootstrap/cache
+          
+          # Generar clave de aplicación si no existe
+          echo "🔑 Generando clave de aplicación..."
+          php artisan key:generate --force --no-interaction || echo "Clave ya existe"
+          
+          # Ejecutar migraciones
+          echo "🗃️ Ejecutando migraciones..."
+          php artisan migrate --force
+          
+          # Seeders en desarrollo (comentar en producción)
+          echo "🌱 Ejecutando seeders..."
+          php artisan db:seed --force || echo "Seeders no ejecutados (puede ser normal)"
+          
+          echo "✅ Inicialización completada"
+        
+        # Variables de entorno desde ConfigMap y Secrets
+        envFrom:
+        - configMapRef:
+            name: laravel-config
+        - secretRef:
+            name: laravel-secrets
+        
+        # Montaje de volúmenes
+        volumeMounts:
+        - name: laravel-storage
+          mountPath: /var/www/html/storage
+        - name: composer-cache
+          mountPath: /var/www/html/vendor
+        
+        # Recursos limitados para init container
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "256Mi"
+            cpu: "200m"
+      
+      # Contenedor principal de la aplicación
+      containers:
+      - name: laravel-app
+        image: dacadev/soporte-tickets:latest  # Imagen creada desde nuestro Dockerfile
+        imagePullPolicy: IfNotPresent
+        
+        # Puerto expuesto (Apache en puerto 80)
+        ports:
+        - containerPort: 80
+          name: http
+          protocol: TCP
+        
+        # Variables de entorno desde ConfigMap y Secrets
+        envFrom:
+        - configMapRef:
+            name: laravel-config          # Configuración no sensible
+        - secretRef:
+            name: laravel-secrets         # Datos sensibles
+        
+        # Variables de entorno adicionales específicas
+        env:
+        - name: APACHE_RUN_USER
+          value: "www-data"
+        - name: APACHE_RUN_GROUP
+          value: "www-data"
+        
+        # Montaje de volúmenes
+        volumeMounts:
+        - name: laravel-storage
+          mountPath: /var/www/html/storage    # Directorio de storage de Laravel
+        - name: composer-cache
+          mountPath: /var/www/html/vendor    # Dependencias de Composer
+        
+        # Configuración de recursos
+        resources:
+          requests:
+            memory: "256Mi"               # Memoria mínima
+            cpu: "250m"                   # 0.25 CPU cores mínimos
+          limits:
+            memory: "512Mi"               # Memoria máxima
+            cpu: "500m"                   # 0.5 CPU cores máximos
+        
+        # Health checks para la aplicación web
+        # Readiness probe: cuándo el pod está listo para recibir tráfico
+        readinessProbe:
+          httpGet:
+            path: /                       # Endpoint para verificar salud
+            port: http
+            scheme: HTTP
+          initialDelaySeconds: 15         # Esperar 15s después de inicio
+          periodSeconds: 10               # Verificar cada 10s
+          timeoutSeconds: 5               # Timeout de 5s
+          successThreshold: 1             # 1 éxito para marcar como ready
+          failureThreshold: 3             # 3 fallos para marcar como not ready
+        
+        # Liveness probe: cuándo reiniciar el contenedor
+        livenessProbe:
+          httpGet:
+            path: /                       # Mismo endpoint
+            port: http
+            scheme: HTTP
+          initialDelaySeconds: 30         # Esperar más para liveness
+          periodSeconds: 30               # Verificar cada 30s
+          timeoutSeconds: 10              # Timeout más largo
+          failureThreshold: 3             # 3 fallos antes de reiniciar
+        
+        # Startup probe: para aplicaciones que tardan en iniciar
+        startupProbe:
+          httpGet:
+            path: /
+            port: http
+            scheme: HTTP
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 12            # 60s total de startup time
+        
+        # Configuración de seguridad
+        securityContext:
+          runAsUser: 33                   # Usuario www-data
+          runAsGroup: 33                  # Grupo www-data
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: false   # Laravel necesita escribir archivos
+          capabilities:
+            drop:
+            - ALL
+            add:
+            - CHOWN
+            - DAC_OVERRIDE
+            - SETGID
+            - SETUID
+      
+      # Definición de volúmenes
+      volumes:
+      - name: laravel-storage
+        persistentVolumeClaim:
+          claimName: laravel-storage-pvc  # PVC para archivos de Laravel
+      - name: composer-cache
+        emptyDir: {}  # Volumen temporal para dependencias de Composer
+      
+      # Configuración del pod
+      restartPolicy: Always
+      dnsPolicy: ClusterFirst
+      
+      # Configuración de seguridad a nivel de pod
+      securityContext:
+        fsGroup: 33                       # Grupo www-data para acceso a volúmenes
+        runAsNonRoot: false               # Apache necesita algunos privilegios
+      
+      # Tolerations y affinity (opcional para Minikube)
+      # En producción se pueden usar para control de placement
+      affinity:
+        podAntiAffinity:                  # Evitar que 2 pods estén en el mismo nodo
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                - key: component
+                  operator: In
+                  values:
+                  - backend
+              topologyKey: kubernetes.io/hostname
+
+---
+# ==============================================================================
+# LARAVEL SERVICE - Exposición de la aplicación dentro del cluster
+# ==============================================================================
+#
+# Este service expone la aplicación Laravel dentro del cluster.
+# Otros pods pueden acceder a la aplicación usando el nombre del service.
+# El service también proporciona balanceo de carga entre las réplicas.
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: laravel-service                  # Nombre del service
+  namespace: soporte-tickets             # Namespace donde se crea
+  labels:
+    app: soporte-tickets
+    component: backend
+    tier: application
+  annotations:
+    description: "Service para la aplicación Laravel"
+spec:
+  # Tipo ClusterIP para acceso interno (el Ingress se encargará del acceso externo)
+  type: ClusterIP
+  
+  # Selector para identificar los pods backend
+  selector:
+    app: soporte-tickets
+    component: backend
+    tier: application
+  
+  # Puertos expuestos
+  ports:
+  - name: http                           # Nombre del puerto
+    port: 80                             # Puerto del service
+    targetPort: http                     # Puerto en el contenedor (nombre definido en el pod)
+    protocol: TCP
+  
+  # Configuración de sesión
+  # Para aplicaciones web stateless, None es apropiado
+  # Para aplicaciones que requieren sticky sessions, usar ClientIP
+  sessionAffinity: None
+
+---
+# ==============================================================================
+# HORIZONTAL POD AUTOSCALER (HPA) - Escalado automático basado en métricas
+# ==============================================================================
+#
+# El HPA escala automáticamente el número de réplicas en un deployment
+# basándose en métricas como CPU, memoria, o métricas personalizadas.
+#
+# Requisitos:
+# - Metrics server debe estar instalado en el cluster
+# - Los pods deben tener resource requests definidos
+#
+# NOTA: En Minikube necesitas habilitar el addon de metrics:
+# minikube addons enable metrics-server
+
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: laravel-hpa
+  namespace: soporte-tickets
+  labels:
+    app: soporte-tickets
+    component: backend
+    tier: application
+  annotations:
+    description: "Autoscaler para la aplicación Laravel basado en CPU"
+spec:
+  # Deployment objetivo para el escalado
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: laravel-deployment
+  
+  # Rango de réplicas
+  minReplicas: 2                         # Mínimo 2 réplicas
+  maxReplicas: 5                         # Máximo 5 réplicas
+  
+  # Métricas para el escalado
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70           # Escalar cuando CPU promedio > 70%
+  
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: 80           # Escalar cuando memoria promedio > 80%
+  
+  # Comportamiento del escalado
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 300    # Esperar 5 min antes de scale down
+      policies:
+      - type: Percent
+        value: 50                        # Reducir máximo 50% de pods por vez
+        periodSeconds: 60
+    scaleUp:
+      stabilizationWindowSeconds: 60     # Esperar 1 min antes de scale up
+      policies:
+      - type: Percent
+        value: 100                       # Aumentar máximo 100% de pods por vez
+        periodSeconds: 60
